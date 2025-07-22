@@ -214,6 +214,10 @@ def loadCheckpoint(setting, loadPATH, savePATH):
         else: 
             raise Exception("Learning rate annealing type not supported.")
 
+    # Ensure the parent directory for saving the checkpoint exists
+    # This is a crucial addition to prevent "Parent directory does not exist" errors
+    os.makedirs(os.path.dirname(savePATH), exist_ok=True)
+
     # Load checkpoint if it exists
     if os.path.exists(loadPATH):
         print(f'Loading checkpoint from: {loadPATH}')
