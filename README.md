@@ -34,3 +34,9 @@ python step2_prepare_data.py
 ```
 
 This will create a `data/folds_data/` directory containing `graphs_outerX_innerY.pkl` files for each fold.
+
+## 3) Model Definition - `model.py`
+This file defines the core neural network architecture, `VGRNN`, which is a Variational Graph Recurrent Neural Network. It includes various helper layers and the logic for the forward pass, including variational inference and graph reconstruction.
+
+## 4) Training Utilities - `train.py`
+This file contains the PyTorch `Dataset` and `DataLoader` setup, functions for saving and loading model checkpoints, and the main training and validation loops. It handles optimization, learning rate scheduling, and early stopping.
