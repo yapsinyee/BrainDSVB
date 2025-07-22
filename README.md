@@ -22,3 +22,4 @@ This script takes raw fMRI time-series data, applies a sliding window approach, 
 ```
 python step1_compute_ldw.py
 ```
+This will create a `data/ldw_data/` directory containing `LDW_abide_data.pkl` and `win_info.pkl`.
