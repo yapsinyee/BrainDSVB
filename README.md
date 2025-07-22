@@ -19,7 +19,18 @@ pip install -r requirements.txt
 
 ## 1) Data Preprocessing - `step1_compute_ldw.py`
 This script takes raw fMRI time-series data, applies a sliding window approach, estimates Ledoit-Wolf covariance, converts it to correlation, and then thresholds it to create binary adjacency matrices (graphs). It also extracts node features (the correlation matrices themselves).
+
 ```
 python step1_compute_ldw.py
 ```
+
 This will create a `data/ldw_data/` directory containing `LDW_abide_data.pkl` and `win_info.pkl`.
+
+## 2) Data Preparation - `step2_prepare_data.py`
+This script takes the dynamic graphs generated in `step1_compute_ldw.py`, applies stratified K-fold cross-validation, pads the sequences of graphs, and converts them into `torch_geometric.data.Data` objects. These `Data` objects are then saved, organized by cross-validation folds.
+
+```
+python step2_prepare_data.py
+```
+
+This will create a `data/folds_data/` directory containing `graphs_outerX_innerY.pkl` files for each fold.
