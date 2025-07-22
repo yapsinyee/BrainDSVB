@@ -1,0 +1,5 @@
+data/*_data
+
+__pycache__
+
+saved_models
