@@ -65,4 +65,3 @@ python visualize.py ./saved_models/VGRNN_softmax_adv_fold11.pth
 ```
 
 Replace `./saved_models/VGRNN_softmax_adv_fold11.pth` with the actual path to your saved checkpoint file.
->>>>>>> master
