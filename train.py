@@ -15,7 +15,8 @@ from torch_geometric.data import Batch
 from torch_geometric.data.data import BaseData # For type checking in padseq
 
 import matplotlib.pyplot as plt # Although imported, plotting is mainly in visualize.py
-from IPython.display import Audio, display, clear_output # For interactive environments like Jupyter
+# from IPython.display import Audio, display, clear_output # For interactive environments like Jupyter - REMOVED
+
 from model import VGRNN # Import the VGRNN model definition
 
 #%%
@@ -330,14 +331,21 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
     patience_count = 0 # Counter for early stopping patience
     lr_anneal_metric = 0 # Metric used by ReduceLROnPlateau scheduler
     num_bad_epochs = [None, None] # For ReduceLROnPlateau scheduler status
+    
+    # Initialize patience_metric and test_metric to avoid UnboundLocalError
+    patience_metric = float('inf') 
+    test_metric = float('nan') # Use nan as a placeholder, as it's only meaningful if testing is enabled and valFreq is met
 
     start_time = time.time() # Start time of training
 
     for epoch in range(epochStart, numEpochs):
         # Reset epoch training losses
-        trainLoss = {'x_NLL': torch.zeros(1).to(model.device), 'z_KLD': torch.zeros(1).to(model.device),
-                     'a_NLL': torch.zeros(1).to(model.device), 'y_BCE': torch.zeros(1).to(model.device),
-                     'y_ACC': torch.zeros(1).to(model.device), 'Total': torch.zeros(1).to(model.device)}
+        trainLoss = {'x_NLL': torch.zeros(1).to(model.device),
+					 'z_KLD': torch.zeros(1).to(model.device),
+					 'a_NLL': torch.zeros(1).to(model.device),
+					 'y_BCE': torch.zeros(1).to(model.device),
+					 'y_ACC': torch.zeros(1).to(model.device),
+					 'Total': torch.zeros(1).to(model.device)}
 
         numIter_train = len(train_loader) # Number of iterations per training epoch
 
@@ -393,15 +401,14 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
                     f'BCE Multipliers: {setting["yBCEMultiplier"][0]:.0e}, {setting["yBCEMultiplier"][1]:.0e}  '
                     f'Anneal Metric: {lr_anneal_metric:.4f} \n'
                     f'Patience: {patience_count}/{earlyStopPatience}  No. of Bad Epochs: {num_bad_epochs[0]}, {num_bad_epochs[1]}  '
-                    f'Patience Metric: {patience_metric:.4f} \n'
-                    f'Best Validation Loss = {best_valLoss:.4f}  Testing Loss at Best Validation = {best_testLoss:.4f}  Best at Epoch: {best_atEpoch} \n'
+                    f'Patience Metric: {patience_metric:.4f}  Test Metric at Best Validation = {best_testLoss:.4f}  Best at Epoch: {best_atEpoch} \n' # Updated line
                     f'Training -- x_NLL = {x_NLL:.4f}  z_KLD = {z_KLD:.4f}  a_NLL = {a_NLL:.4f}  y_BCE = {y_BCE:.4f}  y_ACC = {y_ACC:.4f}  Total = {total_loss:.4f} \n'
                     f'Validation -- x_NLL = {valLoss["x_NLL"].item():.4f}  z_KLD = {valLoss["z_KLD"].item():.4f}  a_NLL = {valLoss["a_NLL"].item():.4f}  '
                     f'y_BCE = {valLoss["y_BCE"].item():.4f}  y_ACC = {valLoss["y_ACC"].item():.4f}  Total = {valLoss["Total"].item():.4f} \n'
                     f'Testing -- x_NLL = {testLoss["x_NLL"].item():.4f}  z_KLD = {testLoss["z_KLD"].item():.4f}  a_NLL = {testLoss["a_NLL"].item():.4f}  '
                     f'y_BCE = {testLoss["y_BCE"].item():.4f}  y_ACC = {testLoss["y_ACC"].item():.4f}  Total = {testLoss["Total"].item():.4f}'
                 )
-                clear_output(wait=True) # Clear previous output in interactive environments
+                # clear_output(wait=True) # REMOVED: This function requires IPython.display
                 print(Print)
 
         # Collect epoch-level training losses
@@ -488,7 +495,7 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
             print('Early Stopped.')
             break # Exit the training loop
 
-    # Optional: Play a sound when training is done (requires IPython.display.Audio)
+    # Optional: Play a sound when training is done (requires IPython.display.Audio) - REMOVED
     # Audio("https://upload.wikimedia.org/wikipedia/commons/0/05/Beep-09.ogg", autoplay=True)
     print('Training done!')
     return model, train_losses, val_losses, test_losses

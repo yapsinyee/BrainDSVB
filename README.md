@@ -53,3 +53,15 @@ python main.py
 ```
 
 This will start the training process. You will see progress updates in your console. Checkpoints will be saved in the `./saved_models/` directory.
+
+## 6) Optional: Visualization - `visualize.py`
+This script helps you analyze the training process by loading a saved checkpoint and plotting the loss curves and accuracy over epochs.
+
+How to run:
+After training, you can analyze the results by running:
+
+```
+python visualize.py ./saved_models/VGRNN_softmax_adv_fold11_mac-1.pth
+```
+
+Replace `./saved_models/VGRNN_softmax_adv_fold11_mac-1.pth` with the actual path to your saved checkpoint file.

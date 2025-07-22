@@ -13,6 +13,7 @@ from train import load_data, myDataset, padseq, loadCheckpoint, train # Data loa
 # This is crucial for running on Mac Mini with MPS (Metal Performance Shaders).
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 import torch # Import torch after setting the environment variable
+from torch.utils.data import DataLoader # Explicitly import DataLoader
 
 # Define the path for the saved_model folder
 saved_model_path = './saved_models'
