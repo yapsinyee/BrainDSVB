@@ -61,7 +61,7 @@ How to run:
 After training, you can analyze the results by running:
 
 ```
-python visualize.py ./saved_models/VGRNN_softmax_adv_fold11_mac-1.pth
+python visualize.py ./saved_models/VGRNN_softmax_adv_fold11.pth
 ```
 
-Replace `./saved_models/VGRNN_softmax_adv_fold11_mac-1.pth` with the actual path to your saved checkpoint file.
+Replace `./saved_models/VGRNN_softmax_adv_fold11.pth` with the actual path to your saved checkpoint file.

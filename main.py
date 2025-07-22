@@ -40,7 +40,7 @@ train_dataset = myDataset(np.concatenate([train_graphs, val_graphs], axis=0))
 # DataLoader for training data
 train_loader = DataLoader(
     train_dataset, 
-    batch_size=32, # Number of subjects per batch
+    batch_size=4, # REDUCED BATCH SIZE TO PREVENT MPS OUT OF MEMORY
     shuffle=True, 
     num_workers=0, # Set to 0 for debugging, can be higher for faster data loading on multi-core CPUs
     collate_fn=padseq, # Custom collate function to handle graph sequences
@@ -80,7 +80,7 @@ print(f"Dataset partition (train+val, val, test subjects): {partition}")
 
 # Setting Paths for saving and loading model checkpoints
 # The path includes outer_loop and inner_loop for specific fold checkpoints
-savePATH = os.path.join(saved_model_path, f'VGRNN_softmax_adv_fold{outer_loop}{inner_loop}_mac-1.pth')
+savePATH = os.path.join(saved_model_path, f'VGRNN_softmax_adv_fold{outer_loop}{inner_loop}.pth')
 loadPATH = savePATH # By default, load from the same path where it will be saved
 
 # Model Parameters for the VGRNN architecture
