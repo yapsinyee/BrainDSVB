@@ -65,3 +65,21 @@ python visualize.py ./saved_models/VGRNN_softmax_adv_fold11.pth
 ```
 
 Replace `./saved_models/VGRNN_softmax_adv_fold11.pth` with the actual path to your saved checkpoint file.
+
+## Cite
+```
+@inproceedings{ijcai2024p592,
+  title     = {A Deep Probabilistic Spatiotemporal Framework for Dynamic Graph Representation Learning with Application to Brain Disorder Identification},
+  author    = {Yap, Sin-Yee and Loo, Junn Yong and Ting, Chee-Ming and Noman, Fuad and Phan, Raphaël C.-W. and Razi, Adeel and Dowe, David L.},
+  booktitle = {Proceedings of the Thirty-Third International Joint Conference on
+               Artificial Intelligence, {IJCAI-24}},
+  publisher = {International Joint Conferences on Artificial Intelligence Organization},
+  editor    = {Kate Larson},
+  pages     = {5353--5361},
+  year      = {2024},
+  month     = {8},
+  note      = {Main Track},
+  doi       = {10.24963/ijcai.2024/592},
+  url       = {https://doi.org/10.24963/ijcai.2024/592},
+}
+```
