@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# BrainDSVB
-=======
 # BrainDSVB
 A Deep Probabilistic Spatiotemporal Framework for Dynamic Graph Representation Learning with Application to Brain Disorder Identification
 
