@@ -1,4 +1,6 @@
 #%% 0-Importing Libraries and Modules
+# NOTE for MPS split: in model.py/train.py, keep adjacency/edge_index/sparse tensors on CPU; move only dense tensors/parameters to DEVICE.
+# Ensure any `.cuda()` calls are replaced with `.to(DEVICE)` and guard unsupported ops with try/except.
 import os
 import numpy as np
 import matplotlib.pyplot as plt # For potential future plotting directly in main
@@ -13,6 +15,21 @@ from train import load_data, myDataset, padseq, loadCheckpoint, train # Data loa
 # This is crucial for running on Mac Mini with MPS (Metal Performance Shaders).
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 import torch # Import torch after setting the environment variable
+
+# ---- Device selection: prefer Apple MPS, safe CPU fallback ----
+def pick_device(prefer_mps=True):
+    try:
+        if prefer_mps and torch.backends.mps.is_available():
+            return torch.device("mps")
+    except Exception:
+        pass
+    return torch.device("cpu")
+
+DEVICE = pick_device(prefer_mps=True)
+print(f"\n[Device] Using device: {DEVICE}. MPS available: {getattr(torch.backends.mps, 'is_available', lambda: False)()}")
+# NOTE: Keep sparse adjacency and PyG scatter/gather on CPU inside model/train.
+# Only move dense tensors (features, labels, GRU/MLP params) to DEVICE.
+
 from torch.utils.data import DataLoader # Explicitly import DataLoader
 
 # Define the path for the saved_model folder
@@ -26,6 +43,7 @@ os.makedirs(saved_model_path, exist_ok=True) # Create the directory if it doesn'
 # inner_loop typically iterates from 1 to 5 within the outer loop for nested CV.
 outer_loop = 1
 inner_loop = 1
+version = 'v2'
 
 print(f"Loading data for outer loop {outer_loop}, inner loop {inner_loop}...")
 # Load train, test, and validation graph sequences
@@ -44,7 +62,7 @@ train_loader = DataLoader(
     shuffle=True, 
     num_workers=0, # Set to 0 for debugging, can be higher for faster data loading on multi-core CPUs
     collate_fn=padseq, # Custom collate function to handle graph sequences
-    pin_memory=True # Speeds up data transfer to GPU (if using CUDA/MPS)
+    pin_memory=False # Speeds up data transfer to GPU (if using CUDA/MPS)
 )
 
 val_dataset = myDataset(val_graphs)
@@ -55,7 +73,7 @@ val_loader = DataLoader(
     shuffle=False, # No need to shuffle validation data
     num_workers=0, 
     collate_fn=padseq, 
-    pin_memory=True
+    pin_memory=False
 )
 
 test_dataset = myDataset(test_graphs)
@@ -66,7 +84,7 @@ test_loader = DataLoader(
     shuffle=False, # No need to shuffle test data
     num_workers=0, 
     collate_fn=padseq, 
-    pin_memory=True
+    pin_memory=False
 )
 
 # Printing Dataset Sizes
@@ -80,7 +98,7 @@ print(f"Dataset partition (train+val, val, test subjects): {partition}")
 
 # Setting Paths for saving and loading model checkpoints
 # The path includes outer_loop and inner_loop for specific fold checkpoints
-savePATH = os.path.join(saved_model_path, f'VGRNN_softmax_adv_fold{outer_loop}{inner_loop}.pth')
+savePATH = os.path.join(saved_model_path, f'VGRNN_softmax_adv_fold{outer_loop}{inner_loop}_{version}.pth')
 loadPATH = savePATH # By default, load from the same path where it will be saved
 
 # Model Parameters for the VGRNN architecture
@@ -106,10 +124,13 @@ lr_annealType = [lr_annealType, lr_annealType] # Applies to both optimizers
 
 # Training Settings dictionary
 setting = {
+    'device': str(DEVICE),          # 'mps' or 'cpu' as resolved above
+    'prefer_mps': True,             # hint for train/model code
+    'sparse_on_cpu': True,          # keep adjacency / edge_index on CPU
     'rngPATH': os.path.join(saved_model_path, "VGRNN_softmax_adv_fold11.pth"), # Path for RNG state (can be same as savePATH)
     'model_params': model_params,
     'recurrent': True, # Whether to use recurrent connections
-    'learnRate': [1e-4, 1e-4], # Learning rates for the two optimizers
+    'learnRate': [1e-5, 1e-5], # Learning rates for the two optimizers
     'yBCEMultiplier': [1, 1], # Multiplier for BCE loss in adversarial training (if DAT is True)
     'l2factor': [0.005, 0.005], # L2 regularization factor for the two optimizers
     'lr_annealType': lr_annealType,
@@ -139,7 +160,7 @@ for i, scheduler in enumerate(schedulers):
 print(f"\nRNG State Path: {setting['rngPATH']}")
 print(f"Checkpoint Save Path: {savePATH}")
 print(f"Starting Epoch: {epochStart}")
-
+print(f"Resolved DEVICE for dense ops: {DEVICE} | sparse_on_cpu={setting['sparse_on_cpu']}")
 
 #%% 3-Training the Model and Evaluating Performance
 
@@ -149,8 +170,9 @@ model, train_losses, val_losses, test_losses = train(
     model, optimizers, schedulers, setting, savePATH,
     train_losses, val_losses, test_losses,
     train_loader, val_loader, test_loader, 
+    device=DEVICE,
     epochStart=epochStart, # Start from the loaded epoch
-    numEpochs=300, # Total number of epochs to run
+    numEpochs=100, # Total number of epochs to run
     gradThreshold=1, # Gradient clipping threshold
     gradientClip=True, # Enable gradient clipping
     verboseFreq=1, # Print verbose output every 1 iteration (can be set higher)
@@ -163,4 +185,3 @@ model, train_losses, val_losses, test_losses = train(
 )
 
 print("\nTraining finished. You can now use visualize.py to plot the results.")
-

@@ -277,7 +277,8 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
           epochStart=0, numEpochs=100, gradThreshold=1, gradientClip=True,
           verboseFreq=1, verbose=True, valFreq=0, 
           validation=False, testing=False, 
-          earlyStopPatience=1, earlyStop=True):
+          earlyStopPatience=1, earlyStop=True,
+          device=None):
     """
     Main training loop for the VGRNN model.
     
@@ -312,6 +313,16 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
             val_losses (dict): Accumulated validation losses.
             test_losses (dict): Accumulated testing losses.
     """
+    # Resolve device preference (argument overrides setting/model)
+    if device is None:
+        # Fall back order: setting['device'] -> model.device -> CPU
+        device = torch.device(setting.get('device', str(getattr(model, 'device', 'cpu'))))
+    # Move model to the resolved device and keep a canonical attribute
+    model.to(device)
+    model.device = device
+    sparse_on_cpu = setting.get('sparse_on_cpu', True)
+    prefer_mps = setting.get('prefer_mps', True)
+    print(f"[Train] Using device={device} | sparse_on_cpu={sparse_on_cpu} | prefer_mps={prefer_mps}")
     print(f'Current device: {model.device}')
     # torch.autograd.set_detect_anomaly(True) # Uncomment for debugging gradient issues
 
@@ -410,7 +421,8 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
                     f'Validation -- x_NLL = {valLoss["x_NLL"].item():.4f}  z_KLD = {valLoss["z_KLD"].item():.4f}  a_NLL = {valLoss["a_NLL"].item():.4f}  '
                     f'y_BCE = {valLoss["y_BCE"].item():.4f}  y_ACC = {valLoss["y_ACC"].item():.4f}  Total = {valLoss["Total"].item():.4f} \n'
                     f'Testing -- x_NLL = {testLoss["x_NLL"].item():.4f}  z_KLD = {testLoss["z_KLD"].item():.4f}  a_NLL = {testLoss["a_NLL"].item():.4f}  '
-                    f'y_BCE = {testLoss["y_BCE"].item():.4f}  y_ACC = {testLoss["y_ACC"].item():.4f}  Total = {testLoss["Total"].item():.4f}'
+                    f'y_BCE = {testLoss["y_BCE"].item():.4f}  y_ACC = {testLoss["y_ACC"].item():.4f}  Total = {testLoss["Total"].item():.4f}\n'
+                    f'---'
                 )
                 # clear_output(wait=True) # REMOVED: This function requires IPython.display
                 print(Print)

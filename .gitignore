@@ -3,3 +3,6 @@ data/*_data
 __pycache__
 
 saved_models
+
+data/.DS_Store
+.DS_Store
