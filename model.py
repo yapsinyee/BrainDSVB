@@ -447,6 +447,11 @@ class VGRNN(torch.nn.Module):
         super().__init__()
 
         model_params = setting['model_params']
+        # Respect external device & sparse policy
+        self.device = torch.device(setting.get('device', get_device().type))
+        self.sparse_on_cpu = setting.get('sparse_on_cpu', True)
+        graph_device = torch.device('cpu') if self.sparse_on_cpu else self.device
+
         # Check if 'recurrent' is specified, default to True
         self.recurrent = setting.get('recurrent', True)
         # Check if 'graphRNN' is specified, default to True
@@ -467,7 +472,6 @@ class VGRNN(torch.nn.Module):
         self.num_nodes = model_params['num_nodes'] # Number of nodes in each graph
         self.num_classes = model_params['num_classes'] # Number of output classes
         self.rnn_dim = rnn_dim
-        self.device = get_device() # Get the device (CPU, CUDA, or MPS)
         self.EPS = 1e-15 # Epsilon for numerical stability
         self.rng_state = torch.get_rng_state() # Store initial RNG state
 
@@ -513,30 +517,22 @@ class VGRNN(torch.nn.Module):
         readout_dim = self.num_nodes * (z_phi_dim + rnn_dim) if self.recurrent else self.num_nodes * z_phi_dim
         self.classifier = GraphClassifier(readout_dim, y_hidden_dim, y_dim, dropout=0.5, batch_norm=True)
 
-    def apply_device_split(self, dense_device: torch.device, sparse_on_cpu: bool = True):
-        """
-        Ensure dense modules live on dense_device (MPS/CPU) and PyG graph modules live on CPU if requested.
-        Call this AFTER any `model.to(...)` so the split is enforced.
-        """
-        self.device = dense_device
-        self.sparse_on_cpu = sparse_on_cpu
-        graph_device = torch.device('cpu') if sparse_on_cpu else dense_device
-
-        # --- PyG / graph modules (CPU if sparse_on_cpu=True) ---
+        # Place graph (PyG/TransformerConv) modules on graph_device; keep dense modules on self.device
+        # Move PyG encoders and prior
         self.enc_z_hidden.to(graph_device)
         self.prior_z_hidden.to(graph_device)
-        if getattr(self, 'recurrent', False) and getattr(self, 'graphRNN', False):
+        # Move GRU_GCN cell if used
+        if self.recurrent and self.graphRNN:
             self.rnn_cell.to(graph_device)
-
-        # --- Dense modules on dense_device ---
-        self.phi_x.to(dense_device)
-        self.enc_z_mean.to(dense_device)
-        self.enc_z_std.to(dense_device)
-        self.prior_z_mean.to(dense_device)
-        self.prior_z_std.to(dense_device)
-        self.phi_z.to(dense_device)
-        self.dec_graph.to(dense_device)
-        self.classifier.to(dense_device)
+        # Keep dense-only modules on the main device
+        self.phi_x.to(self.device)
+        self.enc_z_mean.to(self.device)
+        self.enc_z_std.to(self.device)
+        self.prior_z_mean.to(self.device)
+        self.prior_z_std.to(self.device)
+        self.phi_z.to(self.device)
+        self.dec_graph.to(self.device)
+        self.classifier.to(self.device)
 
     def forward(self, graphs, setting, sample=False):
         """
@@ -583,27 +579,24 @@ class VGRNN(torch.nn.Module):
 
         # Iterate through each graph in the sequence (time step)
         for step, graph in enumerate(graphs):
-            # Move graph data to appropriate devices (dense → self.device, sparse/PyG → graph_device)
-            x = graph.x.to(self.device)               # Node features (dense) → MPS/CPU
-            y = graph.y.to(self.device)               # Labels (dense) → MPS/CPU
+            # Dense features/labels on main device; sparse graph stuff on graph_device
+            x_dev = graph.x.to(self.device)
+            y = graph.y.to(self.device)
             mask = (graph.pad == False).to(self.device)
             last = graph.last.to(self.device)
 
-            edge_index = graph.edge_index.to(graph_device)  # Graph connectivity → CPU (PyG)
-            batch = graph.batch.to(graph_device)            # Batch vector → CPU (PyG)
-            adj = graph.adj.to(graph_device)                # Adjacency matrix (if used by PyG ops) → CPU
+            edge_index = graph.edge_index.to(graph_device)
+            batch = graph.batch.to(graph_device)
+            adj = graph.adj.to(graph_device)
 
             # 1. Data (x) extraction: Transform raw node features
-            x_phi = self.phi_x(x)
+            x_phi = self.phi_x(x_dev)
 
             # 2. Latent state (z) encoder: Infer posterior q(z_t | x_t, h_{t-1})
             # Input to encoder depends on whether recurrent connections are used
             enc_in = torch.cat([x_phi, h], dim=-1) if self.recurrent else x_phi
-            # Ensure module and inputs are on graph_device for PyG
-            self.enc_z_hidden.to(graph_device)
-            enc_in_cpu = enc_in.to(graph_device) if not isinstance(enc_in, (tuple, list)) else (enc_in[0].to(graph_device), enc_in[1].to(graph_device))
-            edge_index_cpu = edge_index.to(graph_device)
-            z_enc_hidden_cpu = self.enc_z_hidden(enc_in_cpu, edge_index_cpu)
+            enc_in_cpu = enc_in.to(graph_device)
+            z_enc_hidden_cpu = self.enc_z_hidden(enc_in_cpu, edge_index)
             z_enc_hidden = z_enc_hidden_cpu.to(self.device)
             z_enc_mean_sb = self.sep_batch(self.enc_z_mean(z_enc_hidden), batch.to(self.device))
             
@@ -612,13 +605,11 @@ class VGRNN(torch.nn.Module):
                 
                 # Latent state (z) prior: p(z_t | h_{t-1})
                 if self.recurrent:
-                    self.prior_z_hidden.to(graph_device)
                     h_cpu = h.to(graph_device)
-                    edge_index_cpu = edge_index.to(graph_device)
-                    z_prior_hidden_cpu = self.prior_z_hidden(h_cpu, edge_index_cpu)
+                    z_prior_hidden_cpu = self.prior_z_hidden(h_cpu, edge_index)
                     z_prior_hidden = z_prior_hidden_cpu.to(self.device)
                     z_prior_mean_sb = self.sep_batch(self.prior_z_mean(z_prior_hidden), batch.to(self.device))
-                    z_prior_std_sb  = self.sep_batch(self.prior_z_std(z_prior_hidden),  batch.to(self.device))
+                    z_prior_std_sb = self.sep_batch(self.prior_z_std(z_prior_hidden), batch.to(self.device))
                 else:
                     # If not recurrent, prior is standard normal (mean=0, std=1, log_std=0)
                     z_prior_mean_sb = torch.zeros_like(z_enc_mean_sb).to(self.device)
@@ -641,27 +632,25 @@ class VGRNN(torch.nn.Module):
             z_phi = self.phi_z(torch.flatten(z_sample_sb, end_dim=1)) # Flatten for dense layer
 
             # 4. Graph (adjacency matrix) decoder: Reconstruct graph from z and h
-            h_sb = self.sep_batch(h, batch) # Separate hidden state back into batch format
+            h_sb = self.sep_batch(h, batch.to(self.device))
             # Input to graph decoder depends on recurrence
             adj_in_sb = torch.cat([z_sample_sb, h_sb], dim=-1) if self.recurrent else z_sample_sb
             adj_dec_sb = self.dec_graph.forward_sb(adj_in_sb) # Reconstructed adjacency logits
             
             # Graph (adjacency matrix) reconstruction loss
-            adj_sb = self.sep_batch(adj, batch).to(self.device)  # move to dense device for loss
-            adj_nll_sb = self.dec_graph.loss_sb(adj_dec_sb, adj_sb, reduce=False)
+            adj_sb = self.sep_batch(adj, batch).to(self.device)
+            adj_nll_sb = self.dec_graph.loss_sb(adj_dec_sb, adj_sb, reduce=False) # BCE loss
 
             # 5. Latent recurrent update: Update hidden state for next time step
             if self.recurrent:
                 rnn_in = torch.cat([x_phi, z_phi], dim=-1) # Input to RNN cell
-                if self.graphRNN:
-                    self.rnn_cell.to(graph_device)
-                    rnn_in_cpu = rnn_in.to(graph_device) if not isinstance(rnn_in, (tuple, list)) else (rnn_in[0].to(graph_device), rnn_in[1].to(graph_device))
+                if self.graphRNN: 
+                    rnn_in_cpu = rnn_in.to(graph_device)
                     h_cpu = h.to(graph_device)
-                    edge_index_cpu = edge_index.to(graph_device)
-                    h_new_cpu = self.rnn_cell(rnn_in_cpu, edge_index_cpu, h_cpu)
+                    h_new_cpu = self.rnn_cell(rnn_in_cpu, edge_index, h_cpu)
                     h = h_new_cpu.to(self.device)
-                else:
-                    h = self.rnn_cell(rnn_in, h)
+                else: 
+                    h = self.rnn_cell(rnn_in, h) # Standard GRU
 
             # 6. Data (x) decoder: (Currently commented out in the original code, returns zero loss)
             # If enabled, it would reconstruct node features 'x'
@@ -726,9 +715,6 @@ class VGRNN(torch.nn.Module):
         Returns:
             torch.Tensor: Reshaped tensor (BatchSize x NumNodes x FeatureDim).
         """
-        # Ensure both input and batch live on the same device to avoid CPU/MPS mismatch
-        if batch.device != input.device:
-            batch = batch.to(input.device)
         # Uses torch_geometric.utils.to_dense_batch for efficient unbatching and padding
         output, _ = to_dense_batch(input, batch)
         return output
@@ -825,3 +811,4 @@ class VGRNN(torch.nn.Module):
         neg_edges_dec = self.dec_graph(z, neg_edge_index)
         neg_loss = - torch.log(1 - neg_edges_dec + self.EPS).mean()
         return norm * (pos_loss + neg_loss)
+
