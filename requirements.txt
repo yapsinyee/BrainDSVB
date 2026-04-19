@@ -1,5 +1,6 @@
 scikit-learn
 pandas
+scipy
 tqdm
 nilearn
 dill

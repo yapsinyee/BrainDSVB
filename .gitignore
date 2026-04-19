@@ -1,8 +1,17 @@
-data/*_data
+__pycache__/
+*.py[cod]
 
-__pycache__
-
-saved_models
-
-data/.DS_Store
 .DS_Store
+data/.DS_Store
+
+# Generated preprocessing outputs
+data/ldw_data/
+data/folds_data/
+
+# Training artifacts
+saved_models/
+logs/
+
+# Local caches
+.ipynb_checkpoints/
+.pytest_cache/

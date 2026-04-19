@@ -48,7 +48,7 @@ def check_path(path):
         path = path + '.pkl'
     return os.path.exists(path)
 
-def load_data(outer_loop, inner_loop):
+def load_data(outer_loop, inner_loop, connectivity_mode='dynamic', dataset='abide'):
     """
     Loads preprocessed graph data (train, validation, test sets) for a specific
     cross-validation fold from a .pkl file.
@@ -63,11 +63,18 @@ def load_data(outer_loop, inner_loop):
             test_graphs (np.ndarray): Array of graph sequences for testing.
             val_graphs (np.ndarray): Array of graph sequences for validation.
     """
-    saveTo = './data/folds_data/' 
-    file_path = os.path.join(saveTo, f'graphs_outer{outer_loop}_inner{inner_loop}.pkl')
-    
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Data file not found: {file_path}. Please run step2_prepare_data.py first.")
+    candidate_paths = [
+        os.path.join('./data/folds_data', dataset, connectivity_mode, f'graphs_outer{outer_loop}_inner{inner_loop}.pkl'),
+        os.path.join('./data/folds_data', connectivity_mode, f'graphs_outer{outer_loop}_inner{inner_loop}.pkl'),
+        os.path.join('./data/folds_data', f'graphs_outer{outer_loop}_inner{inner_loop}.pkl'),
+    ]
+    file_path = next((path for path in candidate_paths if os.path.exists(path)), None)
+
+    if file_path is None:
+        raise FileNotFoundError(
+            "Data file not found in any expected folds path. "
+            f"Tried: {candidate_paths}. Please run step2_prepare_data.py first."
+        )
 
     with open(file_path, 'rb') as f:
         # torch.load is used because the graphs were saved using torch.save in step2_prepare_data.py
@@ -324,6 +331,9 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
     prefer_mps = setting.get('prefer_mps', True)
     print(f"[Train] Using device={device} | sparse_on_cpu={sparse_on_cpu} | prefer_mps={prefer_mps}")
     print(f'Current device: {model.device}')
+    # Re-apply the split so PyG stays on CPU (or not) after .to(...)
+    model.apply_device_split(device, sparse_on_cpu)
+    print(f"[Train] Enforced device split: dense={device}, graph={'cpu' if sparse_on_cpu else str(device)}")
     # torch.autograd.set_detect_anomaly(True) # Uncomment for debugging gradient issues
 
     # Initialize current epoch losses (will be updated per epoch)
@@ -348,7 +358,7 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
     num_bad_epochs = [None, None] # For ReduceLROnPlateau scheduler status
     
     # Initialize patience_metric and test_metric to avoid UnboundLocalError
-    patience_metric = float('inf') 
+    patience_metric = float('inf')
     test_metric = float('nan') # Use nan as a placeholder, as it's only meaningful if testing is enabled and valFreq is met
 
     start_time = time.time() # Start time of training
@@ -416,7 +426,7 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
                     f'BCE Multipliers: {setting["yBCEMultiplier"][0]:.0e}, {setting["yBCEMultiplier"][1]:.0e}  '
                     f'Anneal Metric: {lr_anneal_metric:.4f} \n'
                     f'Patience: {patience_count}/{earlyStopPatience}  No. of Bad Epochs: {num_bad_epochs[0]}, {num_bad_epochs[1]}  '
-                    f'Patience Metric: {patience_metric:.4f}  Test Metric at Best Validation = {best_testLoss:.4f}  Best at Epoch: {best_atEpoch} \n' # Updated line
+                    f'Validation Metric: {patience_metric:.4f}  Test Metric at Best Validation = {best_testLoss:.4f}  Best at Epoch: {best_atEpoch} \n'
                     f'Training -- x_NLL = {x_NLL:.4f}  z_KLD = {z_KLD:.4f}  a_NLL = {a_NLL:.4f}  y_BCE = {y_BCE:.4f}  y_ACC = {y_ACC:.4f}  Total = {total_loss:.4f} \n'
                     f'Validation -- x_NLL = {valLoss["x_NLL"].item():.4f}  z_KLD = {valLoss["z_KLD"].item():.4f}  a_NLL = {valLoss["a_NLL"].item():.4f}  '
                     f'y_BCE = {valLoss["y_BCE"].item():.4f}  y_ACC = {valLoss["y_ACC"].item():.4f}  Total = {valLoss["Total"].item():.4f} \n'
@@ -459,10 +469,15 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
                 # Metric for early stopping, using test accuracy in this case
                 test_metric = testLoss['y_ACC'].item()
         
+            if validation:
+                patience_metric = valLoss['y_BCE'].item()
+            elif testing:
+                patience_metric = testLoss['y_BCE'].item()
+            else:
+                patience_metric = trainLoss['y_BCE'].item()
+
             if earlyStop:
-                # Early stop patience metric: sum of training BCE and accuracy (can be adjusted)
-                patience_metric = (trainLoss['y_BCE'] + trainLoss['y_ACC']).item()
-                # Save model params if current patience metric is better than best_valLoss
+                # Select the best model using validation loss when available.
                 if patience_metric <= best_valLoss:
                     best_valLoss = patience_metric
                     best_testLoss = test_metric # Store test performance at this best validation point
@@ -471,13 +486,17 @@ def train(model, optimizers, schedulers, setting, checkpointPATH,
                     patience_count = 0 # Reset patience counter
                 else:
                     patience_count += 1 # Increment patience counter
-                # print(f'Patience: {patience_count}/{earlyStopPatience}')
             else:
                 # If no early stopping, always save the last model's parameters
                 best_params = copy.deepcopy(model.state_dict())
         
         # Learning rate annealing
-        lr_anneal_metric = trainLoss['y_BCE'].item() # Metric for ReduceLROnPlateau
+        if validation:
+            lr_anneal_metric = valLoss['y_BCE'].item()
+        elif testing:
+            lr_anneal_metric = testLoss['y_BCE'].item()
+        else:
+            lr_anneal_metric = trainLoss['y_BCE'].item()
         for i, scheduler in enumerate(schedulers):
             if isinstance(scheduler, optim.lr_scheduler.StepLR):
                 scheduler.step()
@@ -554,4 +573,3 @@ def validate(model, setting, val_loader):
             valLoss['Total'] += total_loss / numIter
 
     return valLoss
-

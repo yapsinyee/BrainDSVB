@@ -3,6 +3,12 @@ A Deep Probabilistic Spatiotemporal Framework for Dynamic Graph Representation L
 
 This repository contains the implementation of the Brain DSVB framework, a deep probabilistic spatiotemporal model designed for dynamic graph representation learning, with a specific application to brain disorder identification.
 
+The repo supports two dataset entry paths:
+
+- `abide`: original time-series preprocessing path using `data/timeseries/power_asd.npy` and `data/timeseries/power_td.npy`
+- `cobre_static`: static-connectivity path using a MATLAB `.mat` file with one upper-triangular connectivity vector per subject, such as `../data/cobre/cobre_resolution_122.mat`
+- `cobre_fmri`: raw COBRE NIfTI path using per-subject fMRI volumes in `../data/cobre_fmri/`, parcel time-series extraction with an atlas, then graph construction
+
 IJCAI 2024 Publication: https://www.ijcai.org/proceedings/2024/0592.pdf
 
 ## Environment Setup
@@ -19,24 +25,35 @@ pip install -r requirements.txt
 ```
 
 ## 1) Data Preprocessing - `step1_compute_ldw.py`
-This script takes raw fMRI time-series data, applies a sliding window approach, estimates Ledoit-Wolf covariance, converts it to correlation, and then thresholds it to create binary adjacency matrices (graphs). It also extracts node features (the correlation matrices themselves).
+This script supports both connectivity modes for the original `abide` time-series path, static connectivity import for `cobre_static`, and raw-NIfTI preprocessing for `cobre_fmri`.
+
+- `dynamic`: applies a sliding window approach, estimates Ledoit-Wolf covariance per window, converts it to correlation, and thresholds it to create a graph sequence.
+- `static`: estimates a single Ledoit-Wolf covariance matrix on the full subject time series and creates one graph per subject.
 
 How to run:
 ```
-python step1_compute_ldw.py
+python step1_compute_ldw.py --connectivity-mode dynamic --window-size 20 --shift 10
+python step1_compute_ldw.py --connectivity-mode static
+python step1_compute_ldw.py --dataset cobre_static --connectivity-mode static --input-mat ../data/cobre_static_fc/cobre_resolution_122.mat
+python step1_compute_ldw.py --dataset cobre_fmri --connectivity-mode static --fmri-dir ../data/cobre_fmri --atlas-path ~/nilearn_data/schaefer_2018/Schaefer2018_200Parcels_7Networks_order_FSLMNI152_1mm.nii.gz
+python step1_compute_ldw.py --dataset cobre_fmri --connectivity-mode dynamic --fmri-dir ../data/cobre_fmri --window-size 20 --shift 10
 ```
 
-This will create a `data/ldw_data/` directory containing `LDW_abide_data.pkl` and `win_info.pkl`.
+This will create dataset- and mode-specific outputs under `data/ldw_data/<dataset>/<mode>/`.
 
 ## 2) Data Preparation - `step2_prepare_data.py`
-This script takes the dynamic graphs generated in `step1_compute_ldw.py`, applies stratified K-fold cross-validation, pads the sequences of graphs, and converts them into `torch_geometric.data.Data` objects. These `Data` objects are then saved, organized by cross-validation folds.
+This script takes the graphs generated in `step1_compute_ldw.py`, applies stratified K-fold cross-validation, pads graph sequences when needed, and converts them into `torch_geometric.data.Data` objects. These `Data` objects are then saved, organized by cross-validation folds.
 
 How to run:
 ```
-python step2_prepare_data.py
+python step2_prepare_data.py --connectivity-mode dynamic
+python step2_prepare_data.py --connectivity-mode static
+python step2_prepare_data.py --dataset cobre_static --connectivity-mode static
+python step2_prepare_data.py --dataset cobre_fmri --connectivity-mode static
+python step2_prepare_data.py --dataset cobre_fmri --connectivity-mode dynamic
 ```
 
-This will create a `data/folds_data/` directory containing `graphs_outerX_innerY.pkl` files for each fold.
+This will create dataset- and mode-specific outputs under `data/folds_data/<dataset>/<mode>/`.
 
 ## 3) Model Definition - `model.py`
 This file defines the core neural network architecture, `VGRNN`, which is a Variational Graph Recurrent Neural Network. It includes various helper layers and the logic for the forward pass, including variational inference and graph reconstruction.
@@ -49,10 +66,14 @@ This is the main script that ties everything together. It sets up the environmen
 
 How to run:
 ```
-python main.py
+python main.py --connectivity-mode dynamic --outer-loop 1 --inner-loop 1
+python main.py --connectivity-mode static --outer-loop 1 --inner-loop 1
+python main.py --dataset cobre_static --connectivity-mode static --outer-loop 1 --inner-loop 1
+python main.py --dataset cobre_fmri --connectivity-mode static --outer-loop 1 --inner-loop 1
+python main.py --dataset cobre_fmri --connectivity-mode dynamic --outer-loop 1 --inner-loop 1
 ```
 
-This will start the training process. You will see progress updates in your console. Checkpoints will be saved in the `./saved_models/` directory.
+This will start the training process. Dynamic mode keeps the recurrent graph model enabled; static mode disables the recurrent components and trains on one graph per subject. The training script now infers `num_nodes`, `x_dim`, and `num_classes` from the prepared graphs, so 122-node COBRE folds do not require manual code edits. Checkpoints will be saved in the `./saved_models/` directory.
 
 ## 6) Optional: Visualization - `visualize.py`
 This script helps you analyze the training process by loading a saved checkpoint and plotting the loss curves and accuracy over epochs.
